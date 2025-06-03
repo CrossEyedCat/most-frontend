@@ -717,7 +717,7 @@ export default {
       }
     }
 
-    document.addEventListener('DOMContentLoaded', () => {
+
       initPlayer('camera1', 'http://192.168.20.225/streams/camera1/stream.m3u8');
       initPlayer('camera2', 'http://192.168.20.225/streams/camera2/stream.m3u8');
       initDevices();
@@ -730,7 +730,7 @@ export default {
       // Запуск обновления данных каждые 2 секунды
       setInterval(updateData, 2000);
       setInterval(updateCurrentTime, 1000);
-    });
+
 
 // Обработчики для полноэкранного просмотра камер
     document.querySelectorAll('.video-container video').forEach(video => {
@@ -1887,11 +1887,6 @@ body {
 }
 .warning-bg {
   background-color: rgba(251, 188, 5, 0.2);
-}
-
-.critical {
-  color: var(--danger-color);
-  animation: pulse-critical-panel 1s infinite;
 }
 .critical-bg {
   background-color: rgba(234, 67, 53, 0.2);

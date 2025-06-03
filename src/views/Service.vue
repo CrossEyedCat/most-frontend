@@ -6,27 +6,22 @@
 
   <!-- Боковое меню -->
   <div class="sidebar">
-    <img src="@/assets/img/logo.png" alt="Логотип" class="sidebar-logo">
-    <a href="patients.html" class="sidebar-item">
-      <i class="fas fa-procedures"></i>
-      <span>Пациенты</span>
-    </a>
-    <a href="service.html" class="sidebar-item active">
-      <i class="fas fa-concierge-bell"></i>
-      <span>Сервис</span>
-    </a>
-    <a href="documents.html" class="sidebar-item">
-      <i class="fas fa-file-contract"></i>
-      <span>Документооборот</span>
-    </a>
-    <a href="dicom.html" class="sidebar-item">
-      <i class="fas fa-x-ray"></i>
-      <span>Снимки</span>
-    </a>
-    <a href="stream.html" class="sidebar-item">
-      <i class="fas fa-video"></i>
-      <span>Трансляции</span>
-    </a>
+    <img src="@/assets/img/logo.png" alt="Логотип" class="sidebar-logo" />
+    <router-link to="/patients" class="sidebar-item" active-class="active">
+      <i class="fas fa-procedures"></i><span>Пациенты</span>
+    </router-link>
+    <router-link to="/service" class="sidebar-item">
+      <i class="fas fa-concierge-bell"></i><span>Сервис</span>
+    </router-link>
+    <router-link to="/documents" class="sidebar-item">
+      <i class="fas fa-file-contract"></i><span>Документооборот</span>
+    </router-link>
+    <router-link to="/dicom" class="sidebar-item">
+      <i class="fas fa-x-ray"></i><span>Снимки</span>
+    </router-link>
+    <router-link to="/stream" class="sidebar-item">
+      <i class="fas fa-video"></i><span>Трансляции</span>
+    </router-link>
   </div>
 
   <!-- Основное содержимое -->
@@ -255,8 +250,6 @@ export default {
         });
       }
 
-// Активация пунктов меню
-      document.addEventListener('DOMContentLoaded', function() {
         // Получаем текущую страницу
         const currentPage = window.location.pathname.split('/').pop() || 'index.html';
 
@@ -318,14 +311,12 @@ export default {
             showNotification('Информация', 'Эта функция будет доступна в полной версии системы', 'info');
           });
         });
-      });
 
-// Показываем приветственное сообщение при загрузке
-      document.addEventListener('DOMContentLoaded', function() {
+
+
         setTimeout(() => {
           showNotification('Добро пожаловать', 'Вы вошли в систему больницы Святого Берендея', 'success');
         }, 1000);
-      });
       // Генерация случайного оборудования
       function generateRandomEquipment() {
         const equipmentTypes = [
@@ -502,8 +493,6 @@ export default {
         document.getElementById('sort-filter').addEventListener('change', filterEquipment);
       }
 
-      // Инициализация при загрузке
-      document.addEventListener('DOMContentLoaded', function() {
         initFilters();
         filterEquipment(); // Первоначальная фильтрация
 
@@ -518,7 +507,7 @@ export default {
         document.getElementById('add-equipment-btn').addEventListener('click', function() {
           showNotification('Добавление оборудования', 'Форма добавления оборудования будет реализована в полной версии системы', 'info');
         });
-      });
+
     })
   }
 }

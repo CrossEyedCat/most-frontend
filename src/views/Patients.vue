@@ -56,12 +56,15 @@
         <div class="stat-label">Зелёная зона</div>
       </div>
     </div>
-
+    <!-- Modal for adding patient -->
+<!--    <Dialog header="Добавление пациента" v-model:visible="showAddPatient" modal closable>
+      <AddPatientForm @close="showAddPatient=false" @added="handlePatientAdded" />
+    </Dialog>-->
     <!-- Patients List Section -->
     <div class="patients-container">
       <div class="section-title-container">
         <div class="section-title"><i class="fas fa-users"></i><span>Список пациентов</span></div>
-        <button class="add-patient-btn" @click="onAddPatient">
+        <button class="add-patient-btn"  @click="openAddModal">
           <i class="fas fa-plus"></i><span>Добавить пациента</span>
         </button>
       </div>
@@ -70,7 +73,7 @@
       <div class="filters-container">
         <div class="filter-group">
           <label class="filter-label">Триаж</label>
-          <select v-model="statusFilter" @change="filterPatients">
+          <select v-model="statusFilter" @change="filterPatients" class="filter-select">
             <option value="all">Все</option>
             <option value="red">Красный</option>
             <option value="yellow">Жёлтый</option>
@@ -78,15 +81,31 @@
           </select>
         </div>
         <div class="filter-group">
+          <label class="filter-label">Режим</label>
+          <select v-model="modeFilter" @change="loadAndFilter" class="filter-select">
+            <option value="live">Прямая трансляция</option>
+            <option value="archive">Архив</option>
+            <option value="new">Новые</option>
+            <option value="all">Все</option>
+          </select>
+        </div>
+        <div class="filter-group">
+          <label class="filter-label">Отделение</label>
+          <select v-model="departmentFilter" @change="filterPatients" class="filter-select">
+            <option value="all">Все</option>
+            <option v-for="dept in departments" :key="dept" :value="dept">{{ dept }}</option>
+          </select>
+        </div>
+        <div class="filter-group">
           <label class="filter-label">Палата</label>
-          <select v-model="roomFilter" @change="filterPatients">
+          <select v-model="roomFilter" @change="filterPatients" class="filter-select">
             <option value="all">Все</option>
             <option v-for="n in 8" :key="n" :value="n">Палата {{ n }}</option>
           </select>
         </div>
         <div class="filter-group">
           <label class="filter-label">Сортировка</label>
-          <select v-model="sortFilter" @change="filterPatients">
+          <select v-model="sortFilter" @change="filterPatients" class="filter-select">
             <option value="name-asc">По имени (А-Я)</option>
             <option value="name-desc">По имени (Я-А)</option>
             <option value="status">По триажу</option>
@@ -95,7 +114,13 @@
         </div>
         <div class="filter-group">
           <label class="filter-label">Поиск пациента</label>
-          <input type="text" v-model="searchFilter" @input="filterPatients" placeholder="ФИО, PID..." />
+          <input
+              type="text"
+              v-model="searchFilter"
+              @input="onSearchInput"
+              placeholder="ФИО, PID..."
+              class="filter-select"
+          />
         </div>
       </div>
 
@@ -111,78 +136,161 @@
       <table class="patients-table">
         <thead>
         <tr>
-          <th>PID</th><th>ФИО</th><th>Возраст</th><th>Пол</th>
-<!--          <th>Триаж</th>--><th>QR-code</th><th>Палата</th>
-          <th>Койка</th><th>Дата поступления</th>
+          <th>PID</th>
+          <th>ФИО</th>
+          <th>Возраст</th>
+          <th>Пол</th>
+          <!-- В режиме «archive» убираем Палата, Койка, Дата поступления -->
+          <template v-if="modeFilter !== 'archive'">
+            <th>Палата</th>
+            <th>Койка</th>
+            <th>Дата поступления</th>
+          </template>
+
+          <!-- Если режим archive — показываем столбец дат посещений -->
+          <th v-if="modeFilter === 'archive'">Даты посещений</th>
+
+          <!-- Колонка редактирования только для новых -->
+          <th v-if="modeFilter === 'new'">Ред.</th>
         </tr>
         </thead>
         <tbody>
-        <tr v-for="patient in patients" :key="patient.pid" @click="showNotification(patient)"  :class="getRowClass(patient)">
-          <td>{{ patient.id }}</td>
-          <td>{{ patient.fullName }}</td>
-          <td>{{ patient.age }}</td>
-          <td>{{ patient.gender }}</td>
-<!--          <td><span :class="['status-badge', statusMap[patient.status].badge]">
-                  {{ statusMap[patient.status].label }}
-                </span>
-          </td>-->
-          <td><div class="qr-code"><i class="fas fa-qrcode"></i></div></td>
-          <td>{{ patient.room }}</td>
-          <td>{{ patient.bed }}</td>
-          <td>{{ patient.admission }}</td>
+        <tr v-for="patient in displayedPatients" :key="patient.pid">
+          <td>{{ patient.pid }}</td>
+          <td>
+            <template v-if="isEditing(patient)">
+              <input v-model="editBuffer[patient.pid].fullName" class="filter-select" />
+            </template>
+            <template v-else>
+              {{ patient.fullName }}
+            </template>
+          </td>
+          <td>
+            <template v-if="isEditing(patient)">
+              <input v-model.number="editBuffer[patient.pid].age" type="number" class="filter-select" />
+            </template>
+            <template v-else>
+              {{ patient.age }}
+            </template>
+          </td>
+          <td>
+            <template v-if="isEditing(patient)">
+              <select v-model="editBuffer[patient.pid].gender" class="filter-select">
+                <option>Male</option>
+                <option>Female</option>
+              </select>
+            </template>
+            <template v-else>
+              {{ patient.gender }}
+            </template>
+          </td>
+
+          <!-- Если не архив, показываем Палата / Койка / Дата поступления -->
+          <template v-if="modeFilter !== 'archive'">
+            <td>
+              <template v-if="isEditing(patient)">
+                <input v-model="editBuffer[patient.pid].room" class="filter-select" />
+              </template>
+              <template v-else>
+                {{ patient.room }}
+              </template>
+            </td>
+            <td>
+              <template v-if="isEditing(patient)">
+                <input v-model="editBuffer[patient.pid].bed" class="filter-select" />
+              </template>
+              <template v-else>
+                {{ patient.bed }}
+              </template>
+            </td>
+            <td>{{ patient.admission }}</td>
+          </template>
+
+          <!-- архив: выводим список визитов -->
+          <td v-if="modeFilter === 'archive'">
+            <Timeline :value="patient.visits" align="left">
+              <!-- Слева (оппозит) показываем дату начала визита -->
+              <template #opposite="{ item }">
+                <small class="p-text-secondary">
+                  {{ formatDate(item.startTime) }}
+                </small>
+              </template>
+
+              <!-- Справа (контент) показываем, например, диапазон или статус визита -->
+              <template #content="{ item }">
+                {{ formatDate(item.endTime) }}
+              </template>
+            </Timeline>
+          </td>
+
+          <!-- Редактировать -->
+          <td v-if="modeFilter === 'new'">
+            <template v-if="isEditing(patient)">
+              <button @click="saveEdit(patient)" class="filter-select">
+                <i class="fas fa-check"></i>
+              </button>
+              <button @click="cancelEdit(patient)" class="filter-select">
+                <i class="fas fa-times"></i>
+              </button>
+            </template>
+            <template v-else>
+              <i class="fas fa-pencil-alt edit-icon" @click="startEdit(patient)"></i>
+            </template>
+          </td>
         </tr>
         </tbody>
       </table>
     </div>
-
-    <!-- Metrics Charts -->
     <div class="metrics-container">
-      <div class="metric-card">
-        <div class="metric-title">
-          <i class="fas fa-bed"></i>
-          <span>Койко-мест</span>
+      <div
+          v-for="(m, idx) in metrics"
+          :key="idx"
+          class="metric-card"
+          style="width: 100%; max-width: 300px; margin: 0.5rem;"
+      >
+        <!-- header with metric name and max value -->
+        <div class="metric-header" style="padding: .5rem; border-bottom: 1px solid #e0e0e0; margin-bottom: .5rem;">
+          <span class="metric-name" style="font-weight: 600;">{{ m.label }}</span>
+          <span class="metric-max" style="float: right; color: var(--text-secondary);">Максимум: {{ m.max }}</span>
         </div>
-        <div class="chart-container">
-          <canvas id="beds-chart"></canvas>
-        </div>
-        <div class="metric-value" id="beds-value"></div>
-        <div class="metric-details" id="beds-details"></div>
-      </div>
 
-      <div class="metric-card">
-        <div class="metric-title">
-          <i class="fas fa-user-md"></i>
-          <span>Задействованный персонал</span>
-        </div>
-        <div class="chart-container">
-          <canvas id="staff-chart"></canvas>
-        </div>
-        <div class="metric-value" id="staff-value"></div>
-        <div class="metric-details" id="staff-details"></div>
-      </div>
+        <MeterGroup :value="[m]" labelPosition="start">
+          <!-- label card -->
+          <template #label="{ value }">
+            <Card class="border border-surface shadow-none">
+              <template #content>
+                <div class="flex justify-between items-center p-2">
+                  <div class="flex flex-col">
+                    <span class="text-surface-500 dark:text-surface-400 text-sm">{{ value[0].label }}</span>
+                    <span class="font-bold text-lg">{{ value[0].value }}%</span>
+                  </div>
+                  <span
+                      class="w-8 h-8 rounded-full inline-flex justify-center items-center"
+                      :style="{ backgroundColor: value[0].color1, color: '#fff' }"
+                  >
+                  <i :class="value[0].icon" />
+                </span>
+                </div>
+              </template>
+            </Card>
+          </template>
 
-      <div class="metric-card">
-        <div class="metric-title">
-          <i class="fas fa-heartbeat"></i>
-          <span>Использованное оборудование</span>
-        </div>
-        <div class="chart-container">
-          <canvas id="equipment-chart"></canvas>
-        </div>
-        <div class="metric-value" id="equipment-value"></div>
-        <div class="metric-details" id="equipment-details"></div>
-      </div>
-
-      <div class="metric-card">
-        <div class="metric-title">
-          <i class="fas fa-procedures"></i>
-          <span>Среднее время пребывания</span>
-        </div>
-        <div class="chart-container">
-          <canvas id="time-chart"></canvas>
-        </div>
-        <div class="metric-value" id="time-value"></div>
-        <div class="metric-details" id="time-details"></div>
+          <!-- slider -->
+          <template #meter="slotProps">
+            <span style=" top:-1.2rem; right:0; font-size:0.75rem; font-weight:500;">{{ slotProps.value.value }}%</span>
+          <span
+              :class="slotProps.class"
+              :style="{
+              display: 'block',
+              height: '8px',
+              'border-radius': '4px',
+              background: `linear-gradient(to right, ${slotProps.value.color1}, ${slotProps.value.color2})`,
+              width: slotProps.size
+            }"
+              style="margin-top: auto;margin-bottom: auto;margin-left: 15px;"
+          />
+          </template>
+        </MeterGroup>
       </div>
     </div>
 
@@ -202,16 +310,39 @@
 <script>
 import {ref, computed, onMounted, reactive} from 'vue';
 import Chart from 'chart.js/auto';
-import axios from 'axios';
+import api from "@/services/api.js";
+import AddPatientForm from '@/components/AddPatientForm.vue';
+import MeterGroup from 'primevue/metergroup';
+import Timeline from 'primevue/timeline';
 export default {
   name: 'Patients',
+  components: { MeterGroup, AddPatientForm, Timeline,},
   setup() {
+    let searchTimeout = null;
+    const metrics = ref([]);
+    function mapStat(data) {
+      console.log("data", data);
+      return [
+        { key:'places', label:'Койко-мест', active:data.places.active, all:data.places.all, icon:'fas fa-bed', color1:'#34d399', color2:'#2e7d32' },
+        { key:'monitors', label:'Мониторы', active:data.monitors.active, all:data.monitors.all, icon:'fas fa-heartbeat', color1:'#60a5fa', color2:'#ff8f00' },
+        { key:'users', label:'Пользователи', active:data.users.active, all:data.users.all, icon:'fas fa-user-md', color1:'#fbbf24', color2:'#0277bd' },
+        { key:'averageStayTime', label:'Ср. время (дн.)', active:Math.round(data.averageStayTime.allStayTimeSeconds/(3600*24)/data.averageStayTime.allPatientCount), all:14, icon:'fas fa-procedures', color1:'#c084fc', color2:'#69f0ae' }
+      ].map(m=>({ label:m.label, max:m.all, percent:Math.round(m.active/m.all*100), value:Math.round(m.active/m.all*100), color1:m.color1, color2:m.color2, icon:m.icon }));
+    }
+    const editBuffer = reactive({});
+    const editing = ref(new Set());
+    const showAddPatient = ref(false);
+    function openAddModal() { showAddPatient.value = true; }
+    function handlePatientAdded(newPatient) {
+      showAddPatient.value = false;
+      raw.value.unshift(newPatient);
+      applyFilters();
+    }
 
-    document.addEventListener('DOMContentLoaded', () => {
-      if (window.location.pathname.includes('/patients')) {
-        document.body.classList.add('patients-page');
-      }
-    });
+
+    const modeFilter = ref('live');
+    const rawPatients     = ref([]);
+    const displayedPatients = ref([]);
     const alarmSummary = reactive({}) // { [pid]: { count: Number, highest: 'PH'|'PM'|'PL' } }
     const statusFilter = ref('all');
     const roomFilter = ref('all');
@@ -230,123 +361,236 @@ export default {
       const ageDt = new Date(diff)
       return Math.abs(ageDt.getUTCFullYear() - 1970)
     }
-    const fetchLivePatients = async (pointOfCare = null) => {
-      try {
-        const url = pointOfCare
-            ? `/api/live/patients?pointOfCare=${pointOfCare}`
-            : '/api/live/patients';
-        const { data } = await axios.get(url);
-        console.log(data);
-        // «распаковываем» ответ и делаем более удобный объект
-        patients.value = data.map(item => ({
-          id:             item.patient.id,
-          familyName:     item.patient.familyName,
-          givenName:      item.patient.givenName,
-          middleName:     item.patient.middleName,
-          fullName:       `${item.patient.familyName} ${item.patient.givenName} ${item.patient.middleName}`.trim(),
-          birthDate:      item.patient.birthDate,
-          age:            calcAge(item.patient.birthDate),
-          idPatientMis:   item.patient.idPatientMis,
-          room:           item.place.room,
-          bed:            item.place.bed,
-          pointOfCare:    item.place.pointOfCare,
-          mapId:          item.place.mapId,
-          visitId:        item.visitId,
-          pmId:           item.pmId
-        }))
-      } catch (err) {
-        console.error('Ошибка загрузки живых пациентов:', err);
+    async function fetchLive() {
+      const { data } = await api.get('/api/live/patients');
+      return data.map(mapPatient);
+    }
+    async function fetchArchive() {
+      const { data } = await api.get('/api/archive/patients');
+      return data.map(mapPatient);
+    }
+    async function fetchNew() {
+      const { data } = await api.get('/api/new/patients');
+      console.log("data", data)
+      return data.map(mapPatientNew);
+    }
+    function mapPatientNew(item) {
+      return {
+        id:             item.id || "",
+        familyName:     item.familyName || "",
+        givenName:      item.givenName || "",
+        middleName:     item.middleName || "",
+        fullName:       [item.familyName, item.givenName, item.middleName].filter(Boolean).join(" "),
+        birthDate:      item.birthDate || "",
+        age:            item.birthDate ? calcAge(item.birthDate) : "",
+        idPatientMis:   item.idPatientMis || "",
+        // поля палаты/коеки/точки ухода в новых данных могут отсутствовать
+        room:           item.room || "",
+        bed:            item.bed || "",
+        pointOfCare:    item.pointOfCare || "",
+        mapId:          item.mapId || "",
+        visitId:        item.visitId || "",
+        pmId:           item.pmId || ""
+      };
+    }
+    function mapPatient(item) {
+      // если есть вложенное поле patient — обрабатываем его как раньше
+      if (item.patient) {
+        return {
+          id:             item.patient.id || "",
+          familyName:     item.patient.familyName || "",
+          givenName:      item.patient.givenName || "",
+          middleName:     item.patient.middleName || "",
+          fullName:       `${item.patient.familyName || ""} ${item.patient.givenName || ""} ${item.patient.middleName || ""}`.trim(),
+          birthDate:      item.patient.birthDate || "",
+          age:            item.patient.birthDate ? calcAge(item.patient.birthDate) : "",
+          idPatientMis:   item.patient.idPatientMis || "",
+          room:           item.place?.room || "",
+          bed:            item.place?.bed || "",
+          pointOfCare:    item.place?.pointOfCare || "",
+          mapId:          item.place?.mapId || "",
+          visitId:        item.visitId || "",
+          pmId:           item.pmId || "",
+          visits:           item.visits || []   // Сохраним массив визитов
+        };
       }
-    };
+      // иначе — считаем, что пришёл «плоский» объект из hits
+      return {
+        id:             item.id || "",
+        familyName:     item.familyName || "",
+        givenName:      item.givenName || "",
+        middleName:     item.middleName || "",
+        fullName:       [item.familyName, item.givenName, item.middleName].filter(Boolean).join(" "),
+        birthDate:      item.birthDate || "",
+        age:            item.birthDate ? calcAge(item.birthDate) : "",
+        idPatientMis:   item.idPatientMis || "",
+        room:           "",
+        bed:            "",
+        pointOfCare:    "",
+        mapId:          "",
+        visitId:        "",
+        pmId:           ""
+      };
+    }
+    function mapPatientArchive(item) {
+      // Если item.patient существует — используем его, иначе item уже «распакован»
+      const patientObj = item.patient || item;
+      const visits = item.visits || [];
 
-    const fetchArchivedPatients = async () => {
-      try {
-        const { data } = await axios.get('/api/archive/patients');
-        archivedPatients.value = data;
-      } catch (err) {
-        console.error('Ошибка загрузки архива пациентов:', err);
+      // Составляем ФИО (если оно уже лежит в patientObj.fullName, берём его, иначе собираем из трёх полей)
+      const fullName = patientObj.fullName
+          ? patientObj.fullName
+          : [patientObj.familyName, patientObj.givenName, patientObj.middleName]
+              .filter(Boolean)
+              .join(' ');
+
+      return {
+        pid:        patientObj.idPatientMis || "",
+        id:         patientObj.id,
+        familyName: patientObj.familyName || "",
+        givenName:  patientObj.givenName || "",
+        middleName: patientObj.middleName || "",
+        fullName,
+        birthDate:  patientObj.birthDate || "",
+        age:        patientObj.birthDate ? calcAge(patientObj.birthDate) : "",
+        gender:     patientObj.sex === 2 ? "Female" : "Male",
+
+        // В архиве мы не показываем палату/койку/дата поступления, оставляем их пустыми
+        room:      "",
+        bed:       "",
+        admission: "",
+
+        visits    // массив визитов вида [{id, startTime, endTime, pid}, …]
+      };
+    }
+    async function loadAndFilter() {
+      console.log(modeFilter.value, "modeFilter.value ")
+      if (searchFilter.value.trim()) {
+        // если строка поиска непустая — выполняем поиск
+        return fetchByQuery(searchFilter.value.trim());
       }
-    };
+      if (modeFilter.value === 'all' && !searchFilter.value.trim()) {
+        console.log(modeFilter.value, "modeFilter.value111111 ")
+        rawPatients.value = await fetchByQuery('');
+        console.log("rawPatients.value", rawPatients.value)
+      }
+      if (modeFilter.value === 'live') rawPatients.value = await fetchLive();
+      if (modeFilter.value === 'archive') {
+        const raw = await fetchArchive();
+        rawPatients.value = raw.map(mapPatientArchive);
+        console.log(rawPatients.value, "rawPatients" )
+      }
+      if (modeFilter.value === 'new') rawPatients.value = await fetchNew();
+      filterPatients();
+    }
 
     const statusMap = {
       red: { label: 'Красный (неотложный)', badge: 'status-critical', order: 1 },
       yellow: { label: 'Жёлтый (срочный)', badge: 'status-moderate', order: 2 },
       green: { label: 'Зелёный (плановый)', badge: 'status-stable', order: 3 }
     };
-    // Генерация случайных данных для диаграмм
-    function getRandomInt(min, max) {
-      return Math.floor(Math.random() * (max - min + 1)) + min;
+    function onSearchInput() {
+      if (searchTimeout) {
+        clearTimeout(searchTimeout);
+      }
+      // ждем 300 мс «затишья» в вводе
+      searchTimeout = setTimeout(async () => {
+        await fetchByQuery(searchFilter.value.trim());
+      }, 300);
     }
-    // Generate random patient
+    /**
+     * Делаем GET /api/search/patients?query=<q>
+     * Ответ: { live: [...], archive: [...], newPatients: [...] }
+     * После получения подставляем именно тот массив, который соответствует текущему modeFilter.
+     */
+    async function fetchByQuery(q) {
+      if (modeFilter.value !== 'all' && !q) {
+        // Если строка поиска пустая — возвращаемся к прежней загрузке
+        return loadAndFilter();
+      }
 
-
-
-    function createSemiCircleChart(ctx, value, max, color, label) {
-      return new Chart(ctx, {
-        type: 'doughnut',
-        data: {
-          labels: [label, 'Свободно'],
-          datasets: [{
-            data: [value, max-value],
-            backgroundColor: [
-              hexToRgba(color, 0.2),
-              document.body.classList.contains('dark-theme') ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)'
-            ],
-            borderWidth: 0
-          }]
-        },
-        options: {
-          plugins: {
-            legend: { display: false },
-            tooltip: { enabled: false }
-          },
-          responsive: true,
-          maintainAspectRatio: false,
-          circumference: 180,
-          rotation: -90,
-          cutout: '60%',
-          animation: {
-            animateScale: true,
-            animateRotate: true
-          }
+      try {
+        const resp = await api.get(`/api/search/patients?query=${encodeURIComponent(q)}`);
+        const data = resp.data;
+        console.log(data);
+        let hits = [];
+        console.log("data.newPatients", data.newPatients, modeFilter.value)
+        switch (modeFilter.value) {
+          case 'live':
+            hits = data.live;
+            break;
+          case 'archive':
+            // В «archive» у нас обёртка {patient: {...}, visits: [...]},
+            // поэтому нужно «распаковать» полную информацию в формат rawPatients
+            hits = data.archive.map(item => {
+              const p = item.patient;
+              return {
+                patient: {
+                  id: p.id,
+                  familyName: p.familyName,
+                  givenName: p.givenName,
+                  middleName: p.middleName,
+                  birthDate: p.birthDate,
+                  idPatientMis: p.idPatientMis,
+                  height: p.height,
+                  weight: p.weight
+                },
+                place: item.visits.length
+                    ? { /* можно взять последнюю «точку» из visits */ }
+                    : { room: '', bed: '' },
+                visitId: item.visits.length ? item.visits[item.visits.length - 1].id : null,
+                pmId: null
+              };
+            });
+            break;
+          case 'new':
+            console.log("data.newPatients", data.newPatients)
+            hits = data.newPatients.map(p => ({
+              id:             p.id || "",
+              familyName:     p.familyName || "",
+              givenName:      p.givenName || "",
+              middleName:     p.middleName || "",
+              fullName:       [p.familyName, p.givenName, p.middleName].filter(Boolean).join(" "),
+              birthDate:      p.birthDate || "",
+              age:            p.birthDate ? calcAge(p.birthDate) : "",
+              idPatientMis:   p.idPatientMis || "",
+              room:           "",
+              bed:            "",
+              pointOfCare:    "",
+              mapId:          "",
+              visitId:        "",
+              pmId:           ""
+            }));
+            break;
+          default:
+            hits = data;
         }
-      });
-    }
-
-    // Создание полукруглого графика для времени пребывания
-    function createSemiCircleTimeChart(ctx, value, color) {
-      return new Chart(ctx, {
-        type: 'doughnut',
-        data: {
-          labels: ['Среднее время', ''],
-          datasets: [{
-            data: [value, 14-value],
-            backgroundColor: [
-              hexToRgba(color, 0.8),
-              document.body.classList.contains('dark-theme') ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)'
-            ],
-            borderWidth: 0
-          }]
-        },
-        options: {
-          plugins: {
-            legend: { display: false },
-            tooltip: { enabled: false }
-          },
-          responsive: true,
-          maintainAspectRatio: false,
-          circumference: 180,
-          rotation: -90,
-          cutout: '60%',
-          animation: {
-            animateScale: true,
-            animateRotate: true
-          }
+        console.log(hits)
+        if(modeFilter.value!=="all") {
+          rawPatients.value = hits.map(item => mapPatient(item));
         }
-      });
+        else{
+          console.log("hits", hits, [...(hits.live), ...(hits.archive), ...(hits.newPatients)])
+          rawPatients.value = [
+            // 1) «Live»-пациенты: у них есть { patient, place, visitId, pmId } → mapPatient
+            ...hits.live.map(item => mapPatient(item)),
+
+            // 2) «Archive»-пациенты: у них есть { patient, visits } → mapPatientArchive
+            ...hits.archive.map(item => mapPatientArchive(item)),
+
+            // 3) «New»-пациенты: у них «плоский» объект → mapPatientNew (или можно использовать mapPatient, если он умеет обрабатывать плоские записи)
+            ...hits.newPatients.map(p => mapPatientNew(p))
+          ];
+        }
+        console.log(rawPatients.value)
+        filterPatients();
+      } catch (err) {
+        console.error('Ошибка при поиске пациентов:', err);
+        // Если search вернул ошибку — можно просто сбросить список:
+        rawPatients.value = [];
+        displayedPatients.value = [];
+      }
     }
-
-
     // Notification
     function showNotification(patient) {
       // implement DOM notification as in original
@@ -417,47 +661,113 @@ export default {
     // Initialize charts and data
     onMounted(async () => {
       connectAlarmsWs()
-      // Данные для диаграмм
-      const bedsUsed = Math.floor(Math.random() * 125) + 1;
-      const staffUsed = Math.floor(Math.random() * 45) + 1;
-      const equipmentUsed = Math.floor(Math.random() * 25) + 1;
-      const avgStayTime = getRandomInt(3, 14);
-      const freeBeds = 125 - bedsUsed;
-      const freeStaff = 45 - staffUsed;
-      const freeEquipment = 25 - equipmentUsed;
-      const criticalPatients = 5;
-      // Обновление счетчиков
-      document.getElementById('beds-value').textContent = `${bedsUsed} из 125 (${Math.round(bedsUsed / 125 * 100)}%)`;
-      document.getElementById('staff-value').textContent = `${staffUsed} из 45 (${Math.round(staffUsed / 45 * 100)}%)`;
-      document.getElementById('equipment-value').textContent = `${equipmentUsed} из 25 (${Math.round(equipmentUsed / 25 * 100)}%)`;
-      document.getElementById('time-value').textContent = `${avgStayTime} дней`;
 
-      const bedsCtx = document.getElementById('beds-chart').getContext('2d');
-      const staffCtx = document.getElementById('staff-chart').getContext('2d');
-      const equipmentCtx = document.getElementById('equipment-chart').getContext('2d');
-      const timeCtx = document.getElementById('time-chart').getContext('2d');
-
-      // Удаляем старые графики, если они существуют
-      if (window.bedsChart) window.bedsChart.destroy();
-      if (window.staffChart) window.staffChart.destroy();
-      if (window.equipmentChart) window.equipmentChart.destroy();
-      if (window.timeChart) window.timeChart.destroy();
-
-      // Создаем полукруглые диаграммы
-      window.bedsChart = createSemiCircleChart(bedsCtx, bedsUsed, 125, document.body.classList.contains('dark-theme') ? '#69f0ae' : '#2e7d32', 'Занято');
-      window.staffChart = createSemiCircleChart(staffCtx, staffUsed, 45, document.body.classList.contains('dark-theme') ? '#40c4ff' : '#0277bd', 'Работает');
-      window.equipmentChart = createSemiCircleChart(equipmentCtx, equipmentUsed, 25, document.body.classList.contains('dark-theme') ? '#ffab40' : '#ff8f00', 'Используется');
-      window.timeChart = createSemiCircleTimeChart(timeCtx, avgStayTime, document.body.classList.contains('dark-theme') ? '#69f0ae' : '#2e7d32');
-      await fetchLivePatients();
-      await fetchArchivedPatients();
+      await loadAndFilter();
+      const { data: stats } = await api.get('/api/stats/doctor');
+      metrics.value = mapStat(stats);
     });
+    function filterPatients() {
+      let list = rawPatients.value.slice();
 
+      // Filter by triage status
+      if (statusFilter.value !== 'all') {
+        list = list.filter(p => p.status === statusFilter.value);
+      }
+      // Filter by room
+      if (roomFilter.value !== 'all') {
+        list = list.filter(p => p.room === roomFilter.value);
+      }
+      // Search by name or PID
+      const term = searchFilter.value.trim().toLowerCase();
+      if (term) {
+        list = list.filter(p =>
+            p.fullName.toLowerCase().includes(term) ||
+            p.pid.toString().includes(term)
+        );
+      }
+      // Sort
+      switch (sortFilter.value) {
+        case 'name-asc':
+          list.sort((a, b) => a.fullName.localeCompare(b.fullName));
+          break;
+        case 'name-desc':
+          list.sort((a, b) => b.fullName.localeCompare(a.fullName));
+          break;
+        case 'status':
+          list.sort((a, b) => statusOrder[a.status] - statusOrder[b.status]);
+          break;
+        case 'room':
+          list.sort((a, b) => a.room - b.room);
+          break;
+      }
+
+      displayedPatients.value = list;
+      console.log(displayedPatients)
+    }
+
+    const statusOrder = { red: 1, yellow: 2, green: 3 };
+    function calcAge(birthDate) {
+      return Math.floor((Date.now() - new Date(birthDate)) / (1000 * 60 * 60 * 24 * 365));
+    }
+    function startEdit(patient) {
+      // Allow only one row at a time
+      editing.value.forEach(pid => {
+        delete editBuffer[pid];
+      });
+      editing.value.clear();
+      editing.value.add(patient.pid);
+      editBuffer[patient.pid] = { ...patient };
+      console.log(editBuffer, editing)
+    }
+    function isEditing(patient) {
+      return editing.value.has(patient.pid);
+    }
+    function saveEdit(patient) {
+      // отправка editBuffer[patient.pid] на сервер...
+      Object.assign(patient, editBuffer[patient.pid]);
+      delete editBuffer[patient.pid];
+      editing.value.delete(patient.pid);
+    }
+    function cancelEdit(patient) {
+      delete editBuffer[patient.pid];
+      editing.value.delete(patient.pid);
+    }
+    const departments = ref([
+      'Кардиология',
+      'Педиатрия',
+      'Травматология'
+    ]);
+    function formatDate(isoString) {
+      if (!isoString) return "";
+      const dt = new Date(isoString);
+      const pad = n => String(n).padStart(2,'0');
+      const d = pad(dt.getDate());
+      const m = pad(dt.getMonth() + 1);
+      const y = dt.getFullYear();
+      const hh = pad(dt.getHours());
+      const mm = pad(dt.getMinutes());
+      return `${d}.${m}.${y} ${hh}:${mm}`;
+    }
+    // текущее значение фильтра
+    const departmentFilter = ref('all');
     return {
       statusFilter, roomFilter, sortFilter, searchFilter,
       mapActive, statusMap,
       toggleTheme, themeIcon, toggleMap, showNotification, patients, archivedPatients, selectedRow, alarms,
       alarmSummary,
-      getRowClass
+      getRowClass,
+      filterPatients,  displayedPatients,
+      loadAndFilter,modeFilter,
+      startEdit,
+      isEditing,
+      saveEdit,
+      cancelEdit,
+      editBuffer,
+      departments,
+      departmentFilter,
+      metrics,
+      onSearchInput,
+      showAddPatient,openAddModal,handlePatientAdded, formatDate
     };
   }
 };
@@ -519,7 +829,18 @@ export default {
   }
 
   /* Боковая панель */
+.metrics-container {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-around;
+}
 
+.metric-card {
+  background-color: var(--light-color);
+  border-radius: var(--border-radius);
+  box-shadow: var(--box-shadow);
+  padding: 0.5rem;
+}
   .sidebar {
     width: 60px;
     background: var(--light-color);
@@ -2152,11 +2473,10 @@ export default {
   .metrics-container {
     position: fixed;
     bottom: 0;
-    left: 60px;
+    left: 80px;
     right: 0;
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 15px;
+
+
     padding: 15px;
     background-color: var(--light-color);
     border-top: 1px solid rgba(0, 0, 0, 0.1);
@@ -2768,7 +3088,15 @@ export default {
     align-items: center;
     gap: 8px;
   }
-
+.p-timeline .p-timeline-event-marker::before{
+  background-color:#4285f4;
+}
+.p-timeline.p-timeline-vertical .p-timeline-event-opposite, .p-timeline.p-timeline-vertical .p-timeline-event-content{
+  padding: 0 1rem;
+}
+.p-timeline-event-separator{
+  padding-top: 2px;
+}
   .medication-status {
     display: flex;
     align-items: center;

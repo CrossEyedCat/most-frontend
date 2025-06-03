@@ -7,6 +7,7 @@ import Service from "@/views/Service.vue";
 import Documents from "@/views/Documents.vue";
 import Dicom from "@/views/Dicom.vue";
 import medStream from "@/views/medStream.vue";
+import lk from "@/views/lk.vue";
 const routes = [
     { path: '/', name: 'Login', component: Login },
     { path: '/patients', name: 'Patients', component: Patients },
@@ -15,6 +16,7 @@ const routes = [
     { path: '/document', name: 'Document', component: Documents },
     { path: '/dicom', name: 'Dicom', component: Dicom },
     { path: '/medStream', name: 'medStream', component: medStream },
+    { path: '/lk', name: 'lk', component: lk },
 ];
 
 const router = createRouter({
@@ -23,7 +25,7 @@ const router = createRouter({
 });
 
 // Глобальный охранник маршрутов
-router.beforeEach((to, from, next) => {
+/*router.beforeEach((to, from, next) => {
     const token = localStorage.getItem('accessToken');
 
     if (token) {
@@ -44,5 +46,5 @@ router.beforeEach((to, from, next) => {
             next();
         }
     }
-});
+});*/
 export default router;

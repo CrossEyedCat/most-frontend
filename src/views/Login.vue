@@ -64,6 +64,11 @@
 </template>
 
 <script>
+
+
+import api from "@/services/api.js";
+import axios from "axios";
+
 export default {
   name: 'Login',
   data() {
@@ -97,27 +102,60 @@ export default {
         document.body.classList.add('dark-theme');
       }
     },
-    handleLogin() {
+    async handleLogin() {
       this.loading = true;
       this.errorMessage = '';
-      setTimeout(() => {
-        if (this.username === 'admin' && this.password === '888888') {
-          if (this.rememberMe) {
-            localStorage.setItem('rememberMe', 'true');
-            localStorage.setItem('username', this.username);
-            localStorage.setItem('password', this.password);
-          } else {
-            localStorage.removeItem('rememberMe');
-            localStorage.removeItem('username');
-            localStorage.removeItem('password');
+
+      try {
+        const response = await api.post('/auth/login', {
+          login: this.username,
+          password: this.password
+        }, {
+          headers: {
+            'Content-Type': 'application/json'
           }
-          this.$router.push('/patients');
+        });
+
+        // Распаковываем ответ
+        const {
+          type,
+          accessToken,
+          refreshToken,
+          role
+        } = response.data;
+
+        // Комбинируем для Authorization header
+        const authHeader = `${type} ${accessToken}`;
+
+        // Сохраняем токены
+        localStorage.setItem('authToken', accessToken);
+        localStorage.setItem('authType', type);
+        localStorage.setItem('refreshToken', refreshToken);
+        localStorage.setItem('userRole', role);
+
+        // Устанавливаем заголовок по умолчанию для всех будущих запросов
+        axios.defaults.headers.common['Authorization'] = authHeader;
+
+          localStorage.setItem('rememberMe', 'true');
+          localStorage.setItem('username', this.username);
+          localStorage.setItem('password', this.password);
+        // Перенаправление после успешного входа
+        this.$router.push('/patients');
+      } catch (error) {
+        // Разбор ошибки
+        if (error.response) {
+          this.errorMessage =
+              error.response.data.message ||
+              'Неверное имя пользователя или пароль';
         } else {
-          this.errorMessage = 'Неверное имя пользователя или пароль';
-          this.loading = false;
+          this.errorMessage =
+              'Не удалось подключиться к серверу. Попробуйте позже.';
         }
-      }, 1000);
+      } finally {
+        this.loading = false;
+      }
     },
+
     generateMedicalIcons() {
       const icons = [
         'fa-heartbeat','fa-heart-pulse','fa-lungs','fa-syringe','fa-stethoscope',
